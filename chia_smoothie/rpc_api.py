@@ -1,6 +1,7 @@
 import os
-
-import requests
+import ssl
+import json
+import urllib.request
 
 
 certs = (
@@ -9,24 +10,38 @@ certs = (
 )
 
 
-SESSION = requests.Session()
-SESSION.cert = certs
-SESSION.verify = False
-SESSION.headers["Content-Type"] = "application/json"
+ssl_context = ssl.create_default_context()
+ssl_context.load_cert_chain(certs[0], certs[1])
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
 
 
 class ChiaAPI:
     BASE_URI = "https://localhost:8555"
 
     @classmethod
+    def _send_request(cls, url, payload=None):
+        payload = payload or {"": ""}
+
+        req = urllib.request.Request(
+            url=url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+
+        resp = urllib.request.urlopen(req, context=ssl_context)
+        return json.loads(resp.read())
+
+    @classmethod
     def get_blockchain_state(cls):
-        resp = SESSION.post(f"{cls.BASE_URI}/get_blockchain_state", json={"":""})
-        return resp.json()
+        return cls._send_request(f"{cls.BASE_URI}/get_blockchain_state")
+
 
     @classmethod
     def get_connections(cls):
-        resp = SESSION.post(f"{cls.BASE_URI}/get_connections", json={"": ""})
-        return resp.json()
+        return cls._send_request(f"{cls.BASE_URI}/get_connections")
+
 
     @classmethod
     def open_connection(cls, addr):
@@ -37,8 +52,7 @@ class ChiaAPI:
             "port": port
         }
 
-        resp = SESSION.post(f"{cls.BASE_URI}/open_connection", json=payload)
-        return resp.json()
+        return cls._send_request(f"{cls.BASE_URI}/open_connection", payload=payload)
 
 
 if __name__ == "__main__":
