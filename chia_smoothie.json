@@ -1,0 +1,6 @@
+{
+  "nodes": [
+    "node.chia.net:8444"
+  ],
+  "resync_backoff": 10
+}
