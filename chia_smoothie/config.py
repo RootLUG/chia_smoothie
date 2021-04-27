@@ -1,8 +1,6 @@
 import json
 import logging
 
-import urllib3
-urllib3.disable_warnings()
 
 CFG = None
 
