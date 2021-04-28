@@ -9,6 +9,21 @@ Installation, no dependencies required:
     python setup.py install
 
 
+Configuration:
+--------------
+
+All API connections requires SSL certificates including client to be able to connect to the chia daemon. On Linux and Mac the default cert paths are used:
+
+```
+~/.chia/mainnet/config/ssl/full_node/private_full_node.crt
+~/.chia/mainnet/config/ssl/full_node/private_full_node.key
+```
+
+Windows appears to have different paths depending on the installed chia version so we advise to configure manually paths in the chia_smoothie.json config. If the `cert_chain` variable in config is empty or non-existing default (linux&mac) paths are used otherwise paths configured in config are used.
+
+Please note that both `crt` and `key` files are required.
+
+
 Force resync with full nodes:
 -----------------------------
 

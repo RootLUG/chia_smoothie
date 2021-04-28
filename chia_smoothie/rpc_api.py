@@ -1,19 +1,32 @@
 import os
+import platform
 import ssl
 import json
 import urllib.request
 
-
-certs = (
-    os.path.expanduser("~/.chia/mainnet/config/ssl/full_node/private_full_node.crt"),
-    os.path.expanduser("~/.chia/mainnet/config/ssl/full_node/private_full_node.key")
-)
+from . import config
 
 
-ssl_context = ssl.create_default_context()
-ssl_context.load_cert_chain(certs[0], certs[1])
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
+def create_ssl_context():
+    ssl_context = ssl.create_default_context()
+
+    if (cert_chain := config.CFG.get("cert_chain")):
+        pass
+    else:
+        cert_chain = (
+            "~/.chia/mainnet/config/ssl/full_node/private_full_node.crt",
+            "~/.chia/mainnet/config/ssl/full_node/private_full_node.key"
+        )
+
+    cert_chain = tuple(map(os.path.expanduser, cert_chain))
+    ssl_context.load_cert_chain(*cert_chain)
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
+    return ssl_context
+
+
+SSL_CONTEXT = create_ssl_context()
 
 
 class ChiaAPI:
@@ -30,7 +43,7 @@ class ChiaAPI:
             method="POST"
         )
 
-        resp = urllib.request.urlopen(req, context=ssl_context)
+        resp = urllib.request.urlopen(req, context=SSL_CONTEXT)
         return json.loads(resp.read())
 
     @classmethod
@@ -53,6 +66,7 @@ class ChiaAPI:
         }
 
         return cls._send_request(f"{cls.BASE_URI}/open_connection", payload=payload)
+
 
 
 if __name__ == "__main__":

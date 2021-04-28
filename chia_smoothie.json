@@ -2,5 +2,8 @@
   "nodes": [
     "node.chia.net:8444"
   ],
+  "cert_chain": [
+
+  ],
   "resync_backoff": 10
 }
