@@ -5,5 +5,7 @@
   "cert_chain": [
 
   ],
-  "resync_backoff": 10
+  "resync_backoff": 10,
+  "min_connections": 10,
+  "user-agent": "Chia-Smoothie"
 }
