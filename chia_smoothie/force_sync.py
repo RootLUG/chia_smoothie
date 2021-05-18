@@ -41,7 +41,7 @@ def load_external_full_nodes() -> list:
 
 
 
-def force_connections():
+def force_connections(num=10):
     nodes = load_external_full_nodes()
     for n in nodes:
         existing_nodes[n] = 0
@@ -49,7 +49,7 @@ def force_connections():
     logger.info(f"Retrieved {len(nodes)} full nodes from external api")
     node_chain = itertools.chain(sorted([(k, v) for k, v in existing_nodes.items()], key=lambda x:x[1], reverse=True))
 
-    for _ in range(config.CFG["min_connections"]*2):
+    for _ in range(num):
         node, timing = next(node_chain)
         logger.info(f"Attempting to establish connection to {node}")
         rpc_api.ChiaAPI.open_connection(node)
@@ -79,8 +79,11 @@ def resync():
         last_print = now
 
     if force_last_resync is None or force_last_resync + 60 <= now:
-        force_connections()
-        force_last_resync = now
+        remaining = config.CFG["min_connections"] - len(full_nodes)
+        if remaining:
+            logger.info("Not enough full node connections, attempting to discover the full nodes for connections")
+            force_connections(remaining)
+            force_last_resync = now
 
 
 def main():
