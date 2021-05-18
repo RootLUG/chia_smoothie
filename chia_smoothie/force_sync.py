@@ -41,13 +41,14 @@ def load_external_full_nodes() -> list:
 
 
 
-def force_connections(num=10):
+def force_connections(num=10, current=None):
     nodes = load_external_full_nodes()
+    current = current or []
     for n in nodes:
-        existing_nodes[n] = 0
+        existing_nodes.setdefault(n, 0)
 
     logger.info(f"Retrieved {len(nodes)} full nodes from external api")
-    node_chain = itertools.chain(sorted([(k, v) for k, v in existing_nodes.items()], key=lambda x:x[1], reverse=True))
+    node_chain = itertools.chain(sorted([(k, v) for k, v in existing_nodes.items() if k not in current], key=lambda x:x[1], reverse=True))
 
     for _ in range(num):
         node, timing = next(node_chain)
@@ -82,7 +83,7 @@ def resync():
         remaining = config.CFG["min_connections"] - len(full_nodes)
         if remaining:
             logger.info("Not enough full node connections, attempting to discover the full nodes for connections")
-            force_connections(remaining)
+            force_connections(remaining, current=full_nodes)
             force_last_resync = now
 
 
