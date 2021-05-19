@@ -6,6 +6,7 @@
 
   ],
   "resync_backoff": 10,
-  "min_connections": 10,
+  "min_connections": 20,
+  "max_height_spread": 100,
   "user-agent": "Chia-Smoothie"
 }

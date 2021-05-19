@@ -1,11 +1,14 @@
 import time
 import ssl
+import random
 import json
 import urllib.request
 import logging
 import itertools
 import traceback
-import random
+
+from dataclasses import dataclass
+from typing import Optional, List
 
 
 from . import rpc_api
@@ -21,6 +24,129 @@ force_last_resync = None
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class Node:
+    address: str
+    height: int = 0
+    last_seen: float = 0
+    backoff: Optional[float] = None
+
+    @classmethod
+    def from_connection(cls, connection: dict):
+        return cls(
+            address=f"{connection['peer_host']}:{connection['peer_port']}",
+            height=connection.get("peak_height", 0),
+            last_seen=time.monotonic()
+        )
+
+    def connect(self):
+        now = time.monotonic()
+
+        if self.backoff is None or (self.backoff + config.CFG["resync_backoff"] < now):
+            logger.info(f"Attempting to connect to the '{self.address}' full node")
+            rpc_api.ChiaAPI.open_connection(self.address)
+            self.backoff = now
+
+
+class Resync:
+    def __init__(self):
+        self.height = 0
+        self.cfg_nodes = {}
+        self.existing_nodes = {}
+        self.currently_connected = {}
+        self.last_print = None
+        self.external_limit = None
+
+        self.height_spread = config.CFG["max_height_spread"]
+
+        self.load_configured_nodes()
+
+    @property
+    def minimum_height(self) -> int:
+        return self.height - self.height_spread
+
+    def load_configured_nodes(self):
+        for node_addr in config.CFG.get("nodes", []):
+            node = Node(address=node_addr)
+            self.cfg_nodes[node_addr] = node
+
+    def load_external_full_nodes(self) -> List[Node]:
+        nodes = []
+        try:
+            payload = get_json("https://chia.powerlayout.com/nodes")
+
+            for n in payload["nodes"]:
+                try:
+                    if (height := int(n["block_height"])) >= self.minimum_height:
+                        node = Node(
+                            address=f"{n['ip']}:{n['port']}",
+                            height=height
+                        )
+                        nodes.append(node)
+                except ValueError:
+                    pass
+
+            print(f"Loaded {len(nodes)} external full nodes")
+        except Exception:
+            traceback.print_exc()
+        finally:
+            random.shuffle(nodes)
+            return nodes
+
+    def cleanup(self):
+        for n in self.existing_nodes.values():
+            if n.height < self.minimum_height and n.address not in self.cfg_nodes:
+                self.existing_nodes.pop(n.address)
+
+    def connect_to_known_nodes(self):
+        now = time.monotonic()
+
+        if self.external_limit is None or self.external_limit + 30 <= now:
+            self.external_limit = now
+            external = self.load_external_full_nodes()
+
+            for n in external:
+                if n.address not in self.existing_nodes:
+                    self.existing_nodes[n.address] = n
+
+        node_chain = itertools.chain(sorted(
+            [n for n in self.existing_nodes.values() if n.address not in self.currently_connected],
+            key=lambda x: x.last_seen,
+            reverse=True
+        ))
+
+        remaining = int((config.CFG["min_connections"] - len(self.currently_connected))*0.5)
+        if remaining > 0:
+            for _ in range(remaining):
+                node = next(node_chain)
+                node.connect()
+
+    def update_state(self):
+        chia_state = rpc_api.ChiaAPI.get_blockchain_state()
+        self.height = chia_state["blockchain_state"]["peak"]["height"]
+
+    def force_resync(self):
+        self.update_state()
+        connections = rpc_api.ChiaAPI.get_connections()
+
+        self.currently_connected = {}
+
+        for c in connections["connections"]:
+            if c["type"] != 1:
+                continue
+
+            node = Node.from_connection(c)
+            self.currently_connected[node.address] = node
+            self.existing_nodes[node.address] = node
+
+        for node in self.cfg_nodes.values():
+            if node.address not in self.currently_connected:
+                node.connect()
+                self.currently_connected[node.address] = node
+
+        self.connect_to_known_nodes()
+        self.cleanup()
+
 
 def get_json(url: str) -> dict:
     req = urllib.request.Request(
@@ -31,65 +157,11 @@ def get_json(url: str) -> dict:
     return json.loads(resp.read())
 
 
-def load_external_full_nodes() -> list:
-    try:
-        payload = get_json("https://chia.powerlayout.com/nodes")
-        return [f"{v['ip']}:{v['port']}" for v in payload["nodes"]]
-    except Exception:
-        traceback.print_exc()
-        return []
-
-
-
-def force_connections(num=10, current=None):
-    nodes = load_external_full_nodes()
-    current = current or []
-    for n in nodes:
-        existing_nodes.setdefault(n, 0)
-
-    logger.info(f"Retrieved {len(nodes)} full nodes from external api")
-    node_chain = itertools.chain(sorted([(k, v) for k, v in existing_nodes.items() if k not in current], key=lambda x:x[1], reverse=True))
-
-    for _ in range(num):
-        node, timing = next(node_chain)
-        logger.info(f"Attempting to establish connection to {node}")
-        rpc_api.ChiaAPI.open_connection(node)
-
-
-def resync():
-    global last_print, force_last_resync
-
-    backoff = config.CFG["resync_backoff"]
-    now = time.monotonic()
-    connections = rpc_api.ChiaAPI.get_connections()
-    full_nodes = [f"{c['peer_host']}:{c['peer_port']}" for c in connections["connections"] if c["type"] == 1]
-
-    for node in config.CFG.get("nodes", []):
-        if node not in full_nodes:
-            if node not in backoff_cache or backoff_cache[node] + backoff <= now:
-                rpc_api.ChiaAPI.open_connection(node)
-                logging.info(f"Node '{node}' is missing in connections, forcing connection")
-                backoff_cache[node] = now
-
-    for n in full_nodes:
-        if n not in existing_nodes:
-            existing_nodes[n] = now
-
-    if last_print is None or last_print + 60 <= now:
-        logger.info(f"Chia is connected to {len(full_nodes)} nodes: {'; '.join(full_nodes)}")
-        last_print = now
-
-    if force_last_resync is None or force_last_resync + 60 <= now:
-        remaining = config.CFG["min_connections"] - len(full_nodes)
-        if remaining:
-            logger.info("Not enough full node connections, attempting to discover the full nodes for connections")
-            force_connections(remaining, current=full_nodes)
-            force_last_resync = now
-
-
 def main():
+    r = Resync()
+
     while True:
-        resync()
+        r.force_resync()
         time.sleep(0.5)
 
 
