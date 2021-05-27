@@ -77,12 +77,11 @@ class Resync:
 
             for n in payload["nodes"]:
                 try:
-                    if (height := int(n["block_height"])) >= self.minimum_height:
-                        node = Node(
-                            address=f"{n['ip']}:{n['port']}",
-                            height=height
-                        )
-                        nodes.append(node)
+                    node = Node(
+                        address=f"{n['ip']}:{n['port']}",
+                        height=int(n["block_height"])
+                    )
+                    nodes.append(node)
                 except ValueError:
                     pass
 
